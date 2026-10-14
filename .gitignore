@@ -1,0 +1,12 @@
+out/
+data/
+.databricks/
+.vscode/
+.venv/
+__pycache__/
+*.pyc
+*.zip
+*.pb
+*.pb.gz
+*.txt
+.env

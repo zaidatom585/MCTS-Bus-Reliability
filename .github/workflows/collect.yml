@@ -1,0 +1,43 @@
+name: collect-mcts-realtime
+
+on:
+  schedule:
+    - cron: "3 * * * *"        # every hour at :03 (UTC); GitHub may start a few minutes late
+  workflow_dispatch:            # "Run workflow" button, for testing
+    inputs:
+      minutes:
+        description: "How long to collect (minutes)"
+        default: "2"
+
+concurrency:
+  group: collector              # never run two collectors at once
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Collect snapshots
+        run: python collector/collect.py --minutes ${{ github.event.inputs.minutes || '55' }} --interval 60 --out out
+
+      - uses: databricks/setup-cli@main
+
+      - name: Upload to Databricks volume
+        if: always()            # upload whatever was collected, even if the collector exited early
+        run: |
+          if [ -d out ]; then
+            databricks fs cp -r out dbfs:/Volumes/workspace/mcts/raw/realtime --overwrite
+            echo "Uploaded $(find out -type f | wc -l) files"
+          fi

@@ -1,0 +1,12 @@
+bundle:
+  name: mcts-bus-reliability
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-0d9c6991-c514.cloud.databricks.com
+
+include:
+  - resources/*.yml
