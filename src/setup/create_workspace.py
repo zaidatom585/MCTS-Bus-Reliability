@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 00 Setup
+# MAGIC # Create workspace
 # MAGIC Creates the schema and volumes for the MCTS bus reliability project, and downloads the current GTFS
 # MAGIC schedule. Run once now; later the schedule download becomes a daily task (MCTS changes schedules a few
 # MAGIC times a year, and every version is kept so each day's buses are compared against the right timetable).

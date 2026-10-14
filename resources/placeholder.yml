@@ -1,2 +1,2 @@
-# Jobs and pipelines are added in Phase 3.
+# Jobs are added once the pipeline is complete.
 resources: {}
