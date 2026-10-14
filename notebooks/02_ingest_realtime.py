@@ -6,8 +6,8 @@
 # MAGIC
 # MAGIC | Table | One row per | Kept |
 # MAGIC |---|---|---|
-# MAGIC | `bronze_trip_updates` | snapshot × trip × stop | only stop predictions due within the next 15 minutes (see below) |
-# MAGIC | `bronze_vehicle_positions` | snapshot × bus | all |
+# MAGIC | `raw_trip_updates` | snapshot × trip × stop | only stop predictions due within the next 15 minutes (see below) |
+# MAGIC | `raw_vehicle_positions` | snapshot × bus | all |
 # MAGIC
 # MAGIC **Why only near-term predictions:** each snapshot predicts every remaining stop of every trip (~3,900 rows a
 # MAGIC minute, ~5M a day). The arrival estimate only needs the *last* prediction before a bus reaches a stop, which
@@ -155,8 +155,8 @@ def ingest(feed, decoder, schema, table):
 
 # COMMAND ----------
 
-ingest("trips", decode_trip_updates, TRIP_SCHEMA, "bronze_trip_updates")
-ingest("vehicles", decode_vehicles, VEHICLE_SCHEMA, "bronze_vehicle_positions")
+ingest("trips", decode_trip_updates, TRIP_SCHEMA, "raw_trip_updates")
+ingest("vehicles", decode_vehicles, VEHICLE_SCHEMA, "raw_vehicle_positions")
 
 # COMMAND ----------
 
@@ -169,9 +169,9 @@ display(spark.sql(f"""
     SELECT 'trip updates' AS feed, COUNT(DISTINCT source_file) AS snapshots, COUNT(*) AS rows,
            MIN(snapshot_ts) AS first_snapshot, MAX(snapshot_ts) AS last_snapshot,
            COUNT(DISTINCT trip_id) AS trips, ROUND(AVG(CAST(start_date IS NOT NULL AS INT)) * 100, 1) AS pct_with_start_date
-    FROM {T_('bronze_trip_updates')}
+    FROM {T_('raw_trip_updates')}
     UNION ALL
     SELECT 'vehicle positions', COUNT(DISTINCT source_file), COUNT(*), MIN(snapshot_ts), MAX(snapshot_ts),
            COUNT(DISTINCT trip_id), NULL
-    FROM {T_('bronze_vehicle_positions')}
+    FROM {T_('raw_vehicle_positions')}
 """))

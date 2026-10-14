@@ -1,14 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Build reporting marts
+# MAGIC # 05 Build reporting marts
 # MAGIC Summary tables for reporting, built from `stop_arrivals`. Only **reliable** arrivals (final, last
 # MAGIC prediction made at most 2 minutes ahead) count towards on-time figures. Each table is rebuilt in full on every
 # MAGIC run, which takes seconds at this data size and means a fix upstream flows through without extra steps.
 # MAGIC
 # MAGIC | Table | One row per | Used for |
 # MAGIC |---|---|---|
-# MAGIC | `ref_route` | route | route names |
-# MAGIC | `ref_stop` | stop | stop names and map positions |
+# MAGIC | `dim_route` | route | route names |
+# MAGIC | `dim_stop` | stop | stop names and map positions |
 # MAGIC | `mart_route_daily` | service day × route | trends, route ranking |
 # MAGIC | `mart_route_hourly` | route × day type × scheduled hour | when a route runs late |
 # MAGIC | `mart_stop_delays` | stop × route | where delays build up |
@@ -20,7 +20,7 @@
 
 CATALOG, SCHEMA = "workspace", "mcts"
 T_ = lambda n: f"{CATALOG}.{SCHEMA}.{n}"
-LATE_S = 300   # on time = 1 min early to 5 min late (same as transform/estimate_arrivals.py)
+LATE_S = 300   # on time = 1 min early to 5 min late (same as notebook 04)
 
 def build(name, sql):
     spark.sql(f"CREATE OR REPLACE TABLE {T_(name)} AS {sql}")
@@ -33,16 +33,16 @@ def build(name, sql):
 
 # COMMAND ----------
 
-build("ref_route", f"""
+build("dim_route", f"""
     SELECT route_id, route_short_name, route_long_name,
            CONCAT_WS(' ', route_short_name, route_long_name) AS route_label
-    FROM {T_('timetable_routes')}
+    FROM {T_('schedule_routes')}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY route_id ORDER BY valid_from DESC) = 1
 """)
 
-build("ref_stop", f"""
+build("dim_stop", f"""
     SELECT stop_id, stop_name, stop_lat AS latitude, stop_lon AS longitude
-    FROM {T_('timetable_stops')}
+    FROM {T_('schedule_stops')}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY stop_id ORDER BY valid_from DESC) = 1
 """)
 
@@ -90,7 +90,7 @@ build("mart_collection_coverage", f"""
     WITH snaps AS (
         SELECT TO_DATE(FROM_UTC_TIMESTAMP(TIMESTAMP_SECONDS(snapshot_epoch - 4 * 3600), 'America/Chicago')) AS service_date,
                COUNT(DISTINCT snapshot_epoch) AS snapshots
-        FROM (SELECT DISTINCT snapshot_epoch FROM {T_('raw_trip_predictions')})
+        FROM (SELECT DISTINCT snapshot_epoch FROM {T_('raw_trip_updates')})
         GROUP BY ALL
     ),
     arr AS (
@@ -121,7 +121,7 @@ display(spark.sql(f"""
            ROUND(100 * SUM(d.on_time) / SUM(d.arrivals), 1) AS on_time_pct,
            ROUND(100 * SUM(d.late) / SUM(d.arrivals), 1)    AS late_pct,
            ROUND(100 * SUM(d.early) / SUM(d.arrivals), 1)   AS early_pct
-    FROM {T_('mart_route_daily')} d LEFT JOIN {T_('ref_route')} r USING (route_id)
+    FROM {T_('mart_route_daily')} d LEFT JOIN {T_('dim_route')} r USING (route_id)
     GROUP BY r.route_label HAVING SUM(d.arrivals) >= 50
     ORDER BY on_time_pct
 """))
