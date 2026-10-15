@@ -1,5 +1,68 @@
 name: collect-mcts-realtime
 
+# GitHub skips many scheduled runs on the free tier, so each run collects for up to ~5.5 hours and uploads
+# every 30 minutes. The hourly schedule is a safety net: while a run is going, the next trigger waits in the
+# queue (any older waiting trigger is cancelled, which is expected) and starts as soon as the current run ends.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to collect (minutes)"
+        default: "2"
+
+concurrency:
+  group: collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350          # GitHub's limit is 360
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      MINUTES: ${{ github.event.inputs.minutes || '330' }}
+      CHUNK_MINUTES: 30
+      DEST: dbfs:/Volumes/workspace/mcts/raw/realtime
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - uses: databricks/setup-cli@main
+
+      - name: Collect and upload in 30-minute chunks
+        run: |
+          end=$(( $(date +%s) + MINUTES * 60 ))
+          uploaded=0
+          while :; do
+            left=$(( (end - $(date +%s)) / 60 ))
+            [ "$left" -lt 2 ] && break        # a 1-minute chunk would poll once and loop straight back
+            chunk=$(( left < CHUNK_MINUTES ? left : CHUNK_MINUTES ))
+            python collector/collect.py --minutes "$chunk" --interval 60 --out out || echo "Collector saved nothing this chunk"
+            if [ -d out ]; then
+              n=$(find out -type f | wc -l)
+              # a failed upload keeps the files and retries with the next chunk
+              if databricks fs cp -r out "$DEST" --overwrite; then
+                rm -rf out
+                uploaded=$(( uploaded + n ))
+                echo "Uploaded $n files ($uploaded so far)"
+              else
+                echo "Upload failed; will retry after the next chunk"
+              fi
+            fi
+          done
+          # final attempt for anything left over
+          if [ -d out ]; then databricks fs cp -r out "$DEST" --overwrite && uploaded=$(( uploaded + $(find out -type f | wc -l) )); fi
+          echo "Total uploaded: $uploaded files"
+          [ "$uploaded" -gt 0 ]name: collect-mcts-realtime
+
 on:
   schedule:
     - cron: "3 * * * *"        # every hour at :03 (UTC); GitHub may start a few minutes late
