@@ -1,0 +1,45 @@
+resources:
+  jobs:
+    mcts_daily_refresh:
+      name: mcts_daily_refresh
+      # Daily at 15:30 India time (05:00 in Milwaukee), after MCTS's service day has ended.
+      # Bundles keep schedules PAUSED in development mode; unpause it in the Jobs UI.
+      schedule:
+        quartz_cron_expression: "0 30 15 * * ?"
+        timezone_id: Asia/Kolkata
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: fetch_timetable
+          notebook_task:
+            notebook_path: ../notebooks/00_setup.py
+
+        - task_key: load_timetable
+          depends_on:
+            - task_key: fetch_timetable
+          notebook_task:
+            notebook_path: ../notebooks/03_load_schedule.py
+
+        - task_key: ingest_realtime
+          notebook_task:
+            notebook_path: ../notebooks/02_ingest_realtime.py
+
+        - task_key: build_arrivals
+          depends_on:
+            - task_key: load_timetable
+            - task_key: ingest_realtime
+          notebook_task:
+            notebook_path: ../notebooks/04_build_arrivals.py
+            base_parameters:
+              days_back: "3"
+
+        - task_key: build_marts
+          depends_on:
+            - task_key: build_arrivals
+          notebook_task:
+            notebook_path: ../notebooks/05_build_marts.py
+
+        - task_key: check_data
+          depends_on:
+            - task_key: build_marts
+          notebook_task:
+            notebook_path: ../notebooks/06_check_data.py

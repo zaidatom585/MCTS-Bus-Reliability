@@ -15,8 +15,13 @@
 # MAGIC - `is_final`: a stop still listed in the newest snapshot has not been reached yet, so it is not final.
 # MAGIC
 # MAGIC **On time** = between 1 minute early and 5 minutes late (a common US transit standard).
+# MAGIC
+# MAGIC **Incremental.** Only the last `days_back` service days are rebuilt (default 3), since older days can no
+# MAGIC longer change. Set `days_back` to 0 to rebuild everything.
 
 # COMMAND ----------
+
+from datetime import date, timedelta
 
 from pyspark.sql import Window
 from pyspark.sql import functions as F
@@ -27,6 +32,12 @@ TZ = "America/Chicago"
 MAX_LEAD_S = 120          # last prediction made at most 2 minutes before the arrival
 EARLY_S, LATE_S = -60, 300
 
+dbutils.widgets.text("days_back", "3")
+DAYS_BACK = int(dbutils.widgets.get("days_back"))
+FULL = DAYS_BACK == 0 or not spark.catalog.tableExists(T_("stop_arrivals"))
+CUTOFF = None if FULL else date.today() - timedelta(days=DAYS_BACK)
+print("Rebuilding:", "all service days" if FULL else f"service days from {CUTOFF}")
+
 # MCTS leaves start_date blank, and the same trip_id runs every day, so each prediction gets a day key:
 # start_date when present, otherwise the local date of the arrival minus 4 hours (a bus at 1:30 AM still
 # counts as the previous day's service, since MCTS's service day ends in the early morning).
@@ -34,6 +45,8 @@ SERVICE_DAY_START_H = 4
 tu = (spark.table(T_("raw_trip_updates")).where("trip_id IS NOT NULL AND arrival_epoch IS NOT NULL")
       .withColumn("day_key", F.coalesce(F.col("start_date"), F.date_format(F.from_utc_timestamp(
           F.timestamp_seconds(F.col("arrival_epoch") - SERVICE_DAY_START_H * 3600), TZ), "yyyyMMdd"))))
+if not FULL:
+    tu = tu.where(F.col("day_key") >= CUTOFF.strftime("%Y%m%d"))
 newest_snapshot = tu.agg(F.max("snapshot_epoch")).first()[0]
 print("Newest snapshot:", newest_snapshot and spark.sql(f"SELECT timestamp_seconds({newest_snapshot})").first()[0])
 
@@ -122,9 +135,16 @@ arrivals = (
     .withColumn("scheduled_hour_local", F.hour(F.from_utc_timestamp("scheduled_arrival", TZ)))
 )
 
-(arrivals.write.mode("overwrite").option("overwriteSchema", "true")
- .partitionBy("service_date").saveAsTable(T_("stop_arrivals")))
-print(f"stop_arrivals: {spark.table(T_('stop_arrivals')).count():,} rows")
+if FULL:
+    (arrivals.write.mode("overwrite").option("overwriteSchema", "true")
+     .partitionBy("service_date").saveAsTable(T_("stop_arrivals")))
+else:
+    (arrivals.where(F.col("service_date") >= F.lit(CUTOFF))
+     .write.mode("overwrite").option("replaceWhere", f"service_date >= '{CUTOFF}'")
+     .saveAsTable(T_("stop_arrivals")))
+WINDOW = "TRUE" if FULL else f"service_date >= '{CUTOFF}'"
+written = spark.table(T_("stop_arrivals")).where(WINDOW).count()
+print(f"stop_arrivals: {written:,} rows rebuilt, {spark.table(T_('stop_arrivals')).count():,} in total")
 
 # COMMAND ----------
 
@@ -140,11 +160,11 @@ display(spark.sql(f"""
            ROUND(100 * AVG(CASE WHEN is_reliable THEN CAST(is_on_time AS INT) END), 1) AS on_time_pct,
            ROUND(AVG(CASE WHEN is_reliable THEN delay_s END) / 60, 2)                  AS avg_delay_min,
            ROUND(PERCENTILE(CASE WHEN is_reliable THEN lead_s END, 0.5), 0)            AS median_lead_s
-    FROM {T_('stop_arrivals')}
+    FROM {T_('stop_arrivals')} WHERE {WINDOW}
 """))
 
 predicted = last_pred.count()
-matched_n = spark.table(T_("stop_arrivals")).count()
+matched_n = written
 print(f"Trip-stops matched to the timetable: {matched_n:,} of {predicted:,} "
       f"({100 * matched_n / max(predicted, 1):.1f}%)")
 
@@ -152,6 +172,6 @@ display(spark.sql(f"""
     SELECT route_id, COUNT(*) AS arrivals,
            ROUND(100 * AVG(CAST(is_on_time AS INT)), 1) AS on_time_pct,
            ROUND(AVG(delay_s) / 60, 2) AS avg_delay_min
-    FROM {T_('stop_arrivals')} WHERE is_reliable
+    FROM {T_('stop_arrivals')} WHERE is_reliable AND {WINDOW}
     GROUP BY route_id ORDER BY arrivals DESC LIMIT 15
 """))

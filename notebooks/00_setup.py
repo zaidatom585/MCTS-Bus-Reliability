@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 00 Setup
 # MAGIC Creates the schema and volumes for the MCTS bus reliability project, and downloads the current GTFS
-# MAGIC schedule. Run once now; later the schedule download becomes a daily task (MCTS changes schedules a few
+# MAGIC schedule if it has changed. Runs as the first task of the daily job (MCTS changes schedules a few
 # MAGIC times a year, and every version is kept so each day's buses are compared against the right timetable).
 
 # COMMAND ----------
@@ -24,8 +24,14 @@ print("Ready:", RAW)
 
 # COMMAND ----------
 
-r = requests.get("https://kamino.mcts.org/gtfs/google_transit.zip", timeout=120)
-r.raise_for_status()
+try:
+    r = requests.get("https://kamino.mcts.org/gtfs/google_transit.zip", timeout=120)
+    r.raise_for_status()
+except requests.RequestException as e:
+    # A failed download must not stop the daily job: the timetable already stored stays in use.
+    if not any(f.endswith(".zip") for f in os.listdir(f"{RAW}/schedule")):
+        raise
+    dbutils.notebook.exit(f"SKIPPED: timetable download failed ({type(e).__name__}); using the stored version")
 digest = hashlib.sha256(r.content).hexdigest()[:12]
 existing = [f for f in os.listdir(f"{RAW}/schedule") if digest in f]
 if existing:
