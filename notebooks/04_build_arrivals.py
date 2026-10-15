@@ -120,8 +120,13 @@ matched = (matched.withColumn("scheduled_epoch", scheduled_epoch)
            .withColumn("delay_s", F.col("arrival_epoch") - F.col("scheduled_epoch")))
 
 w_best = Window.partitionBy("trip_id", "day_key", "stop_sequence", "stop_id").orderBy(F.abs("delay_s"))
+# A stop whose predicted time drifts across the 4 AM day-key boundary ends up in two day-key groups that both
+# resolve to the same service day. Keep only the group with the most recent prediction for that visit.
+w_visit = Window.partitionBy("service_date", "trip_id", "stop_sequence", "stop_id").orderBy(
+    F.col("last_snapshot_epoch").desc())
 arrivals = (
     matched.withColumn("rn", F.row_number().over(w_best)).where("rn = 1")
+    .withColumn("rn", F.row_number().over(w_visit)).where("rn = 1")
     .select(
         "service_date", "feed_version", "trip_id", "route_id", "vehicle_id",
         "stop_sequence", F.coalesce("stop_id", "sched_stop_id").alias("stop_id"),
