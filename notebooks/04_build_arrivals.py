@@ -21,7 +21,7 @@
 
 # COMMAND ----------
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from pyspark.sql import Window
 from pyspark.sql import functions as F
@@ -46,7 +46,10 @@ tu = (spark.table(T_("raw_trip_updates")).where("trip_id IS NOT NULL AND arrival
       .withColumn("day_key", F.coalesce(F.col("start_date"), F.date_format(F.from_utc_timestamp(
           F.timestamp_seconds(F.col("arrival_epoch") - SERVICE_DAY_START_H * 3600), TZ), "yyyyMMdd"))))
 if not FULL:
-    tu = tu.where(F.col("day_key") >= CUTOFF.strftime("%Y%m%d"))
+    # Filter on snapshot time first: Delta skips whole files by their min/max snapshot, so old days are never read.
+    cutoff_epoch = int(datetime.combine(CUTOFF - timedelta(days=1), datetime.min.time(), timezone.utc).timestamp())
+    tu = (tu.where(F.col("snapshot_epoch") >= cutoff_epoch)
+          .where(F.col("day_key") >= CUTOFF.strftime("%Y%m%d")))
 newest_snapshot = tu.agg(F.max("snapshot_epoch")).first()[0]
 print("Newest snapshot:", newest_snapshot and spark.sql(f"SELECT timestamp_seconds({newest_snapshot})").first()[0])
 
