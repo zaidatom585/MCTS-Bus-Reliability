@@ -125,3 +125,5 @@ display(spark.sql(f"""
     GROUP BY r.route_label HAVING SUM(d.arrivals) >= 50
     ORDER BY on_time_pct
 """))
+# COMMAND ----------
+# compute: serverless (CPU)
