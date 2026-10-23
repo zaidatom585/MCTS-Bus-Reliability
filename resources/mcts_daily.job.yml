@@ -2,8 +2,7 @@ resources:
   jobs:
     mcts_daily_refresh:
       name: mcts_daily_refresh
-      # Daily at 15:30 India time (05:00 in Milwaukee), after MCTS's service day has ended.
-      # Bundles keep schedules PAUSED in development mode; unpause it in the Jobs UI.
+      # Daily at 15:30 India time (05:00 in Milwaukee), after MCTS's service day has ended
       schedule:
         quartz_cron_expression: "0 30 15 * * ?"
         timezone_id: Asia/Kolkata
