@@ -34,6 +34,30 @@ They describe the collection period above, not a long-term average.
 
 ![Daily job run](images/job_run.png)
 
+## Power BI report
+
+A five-page Power BI report built on the summary tables (Import mode, about 470 KB).
+[Download the PDF](images/MCTS_Bus_Reliability_Report.pdf) or open
+[`powerbi/MCTS_Bus_Reliability.pbix`](powerbi/MCTS_Bus_Reliability.pbix) in Power BI Desktop.
+
+| Page | What it shows |
+| --- | --- |
+| Overview | Headline on-time, late and early shares, average delay, daily trend, weekday vs weekend |
+| Routes | Routes ranked by on-time share, busy vs punctual routes, full route table |
+| Time of day | On-time share by scheduled hour and day type, and by route and hour |
+| Stops | Map of stops coloured by late share, and the 15 stops with the highest late share |
+| Data coverage | Share of each day captured and share of arrivals with a reliable estimate |
+
+All percentages are calculated from totals (on-time arrivals ÷ arrivals), not by averaging route or stop
+percentages, so busy routes weigh more than quiet ones.
+
+![Overview](images/report_overview.jpg)
+![Routes](images/report_route.jpg)
+![Time of day](images/report_time_of_day.jpg)
+![Stops](images/report_stops.jpg)
+![Data coverage](images/report_data_coverage.jpg)
+
+
 ## Architecture
 
 ```mermaid
@@ -57,6 +81,7 @@ flowchart LR
 | **05 build_marts** | Builds route, stop, hour and daily tables for reporting, plus a collection-coverage table. |
 | **06 check_data** | Runs 9 checks and fails the job if any critical one fails. |
 | **07 final_results** | Read-only queries behind the figures in this README. |
+| **Power BI report** (`powerbi/`) | Imports the summary tables from a Databricks SQL warehouse; see [Power BI report](#power-bi-report). |
 
 Everything runs as one 6-task Databricks job (`resources/mcts_daily.job.yml`), deployed with Databricks Asset
 Bundles and scheduled daily at 05:00 Milwaukee time, after the service day ends.
@@ -108,7 +133,7 @@ Requirements: a Databricks workspace (Free Edition works), the Databricks CLI, a
 ## Tech stack
 
 Python, PySpark, Spark SQL, Databricks (Free Edition, serverless), Delta Lake, Unity Catalog volumes,
-Auto Loader, Databricks Jobs and Asset Bundles, GitHub Actions, GTFS and GTFS-realtime (Protocol Buffers).
+Auto Loader, Databricks Jobs and Asset Bundles, Power BI (DAX), GitHub Actions, GTFS and GTFS-realtime (Protocol Buffers).
 
 ## Data source
 
